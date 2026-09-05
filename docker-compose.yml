@@ -1,0 +1,72 @@
+name: modelledger-governance-hub
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: modelledger
+      POSTGRES_USER: modelledger
+      POSTGRES_PASSWORD: modelledger
+    ports:
+      - "127.0.0.1:5547:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U modelledger"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:6387:6379"
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: modelledger
+      MINIO_ROOT_PASSWORD: modelledger-demo
+    ports:
+      - "127.0.0.1:9007:9000"
+      - "127.0.0.1:9008:9001"
+    volumes:
+      - minio-data:/data
+  api:
+    build: .
+    environment:
+      MODELLEDGER_DATABASE_URL: postgresql+psycopg://modelledger:modelledger@postgres:5432/modelledger
+      MODELLEDGER_CELERY_BROKER_URL: redis://redis:6379/0
+      MODELLEDGER_CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MODELLEDGER_MINIO_ENDPOINT_URL: http://minio:9000
+      MODELLEDGER_JWT_SECRET: local-compose-secret-change-before-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8088:8088"
+  worker:
+    build: .
+    command: ["uv", "run", "celery", "-A", "modelledger.tasks:celery_app", "worker", "--loglevel=INFO"]
+    environment:
+      MODELLEDGER_DATABASE_URL: postgresql+psycopg://modelledger:modelledger@postgres:5432/modelledger
+      MODELLEDGER_CELERY_BROKER_URL: redis://redis:6379/0
+      MODELLEDGER_CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MODELLEDGER_JWT_SECRET: local-compose-secret-change-before-production
+    depends_on:
+      redis:
+        condition: service_started
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "127.0.0.1:5178:80"
+volumes:
+  postgres-data:
+  minio-data:
