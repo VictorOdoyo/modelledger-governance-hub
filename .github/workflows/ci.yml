@@ -1,0 +1,55 @@
+name: Verify ModelLedger
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: modelledger_test
+          POSTGRES_USER: modelledger
+          POSTGRES_PASSWORD: modelledger
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U modelledger"
+          --health-interval 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+      - run: uv sync --frozen --all-groups
+      - run: uv run ruff check .
+      - run: uv run pytest --cov=modelledger --cov-report=xml
+        env:
+          MODELLEDGER_TEST_DATABASE_URL: postgresql+psycopg://modelledger:modelledger@localhost:5432/modelledger_test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage.xml
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run test
+      - run: npm run build
+  containers:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build api worker
