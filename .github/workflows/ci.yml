@@ -52,4 +52,4 @@ jobs:
     needs: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose build api worker
+      - run: docker compose build api worker web
